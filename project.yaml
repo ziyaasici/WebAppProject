@@ -452,19 +452,6 @@ Resources:
       DBName: WordpressDB
       AutoMinorVersionUpgrade: false
 
-
-  # # ----- TEST -----
-  # MyDNSRecord:
-  #   Type: AWS::Route53::RecordSet
-  #   Properties:
-  #     HostedZoneId: !Ref HostedZoneId
-  #     Comment: DNS entry for My CNAME Record
-  #     Name: project.zasici.com
-  #     Type: CNAME
-  #     TTL: 300
-  #     ResourceRecords:
-  #       - !GetAtt ALB.DNSName
-
 Outputs:
   ALBDns:
     Description: DNS name of the Application Load Balancer
