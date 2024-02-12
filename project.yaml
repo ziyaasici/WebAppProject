@@ -1,0 +1,471 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This YAML is resolving LAMP (Linux/Apache/MySQL/Python) Project
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ziya
+  
+  # HostedZoneId:
+  #   Type: String
+  #   Default: Z0012370917OUAQM5BEC
+
+Resources:
+
+# ------------------------------------------
+# ----------- VPC CONFIGURATIONS -----------
+# ------------------------------------------
+
+  # Create a VPC
+  ProjVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: 
+        - Key: 'Name'
+          Value: 'Proj-VPC'
+
+  # Create an Internet Gateway
+  ProjIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: 
+        - Key: 'Name'
+          Value: 'Proj-InternetGW'
+
+  # Attach Internet Gateway to VPC
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref ProjVPC
+      InternetGatewayId: !Ref ProjIGW
+
+  # Create First Public Subnet under us-east-1a
+  # NAT Will be under this subnet
+  Public1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.1.0/24
+      VpcId: !Ref ProjVPC
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: 'Name'
+          Value: 'Public1a-NAT'
+
+  # Create First Private Subnet under us-east-1a
+  # WordPress Server will be under this subnet
+  Private1aWP:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.11.0/24
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'Private1a-WP'
+
+  # Create Second Private Subnet under us-east-1a
+  # RDS Will be under this subnet
+  Private1aRDS:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.13.0/24
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'Private1a-RDS'
+
+  # Create Second Public Subnet under us-east-1b
+  # NAT will be under this subnet
+  Public1b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.2.0/24
+      VpcId: !Ref ProjVPC
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: 'Name'
+          Value: 'Public1b-NAT'
+
+  # Create First Private Subnet under us-east-1b
+  # WordPress Server will be under this subnet
+  Private1bWP:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.12.0/24
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'Private1b-WP'
+
+  # Create Second Private Subnet under us-east-1b
+  # RDS Will be under this subnet
+  Private1bRDS:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.14.0/24
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'Private1b-RDS'
+
+  # Create a Public Route table to both Public Subnets to use
+  PublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'PublicRT'
+
+  # Associate both Public Subnets under Public Route Table
+  PublicRTASS1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref Public1a
+  PublicRTASS2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref Public1b
+
+  # Create a Private Route table for east-1a
+  PrivateRT1a:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'PrivateRT for east-1a'
+
+  # Send Requests to Nat Instance from PrivateRT1a
+  Route1a:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRT1a
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NATIns1a
+  
+  # Create a Private Route table for east-1b
+  PrivateRT1b:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProjVPC
+      Tags: 
+        - Key: 'Name'
+          Value: 'PrivateRT for east-1b'
+
+  # Send Requests to Nat Instance from PrivateRT1a
+  Route1b:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRT1b
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NATIns1b
+
+  # Associate east-1a Private Subnets to Route Tables
+  PrivateRTASS1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT1a
+      SubnetId: !Ref Private1aWP
+  PrivateRTASS2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT1a
+      SubnetId: !Ref Private1aRDS
+
+  # Associate east-1b Private Subnets to Route Tables
+  PrivateRTASS3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT1b
+      SubnetId: !Ref Private1bWP
+  PrivateRTASS4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT1b
+      SubnetId: !Ref Private1bRDS
+
+  # New Route for Public subnets to access Internet Gateway
+  IGWRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRT
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref ProjIGW
+
+# ------------------------------------------
+# ----------- NAT CONFIGURATIONS -----------
+# ------------------------------------------
+
+  # Create NAT Instance for east-1a
+  NATIns1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-037eb9e678c1a8ed9
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref SecGrpNAT
+      SubnetId: !Ref Public1a
+      SourceDestCheck: false
+      Tags: 
+        - Key: 'Name'
+          Value: 'NAT Instance 1a'
+
+  # Create NAT Instance for east-1b
+  NATIns1b:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-037eb9e678c1a8ed9
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref SecGrpNAT
+      SubnetId: !Ref Public1b
+      SourceDestCheck: false
+      Tags: 
+        - Key: 'Name'
+          Value: 'NAT Instance 1b'
+
+  # Create Security Group for NAT Instance
+  SecGrpNAT:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 22 Public
+      GroupName: NATInsSecGrp
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 10.0.0.0/16
+      VpcId: !Ref ProjVPC
+
+# ------------------------------------------------
+# ----------- WORDPRESS CONFIGURATIONS -----------
+# ------------------------------------------------
+# TODO: USE EC2 TEMPLATE FOR THIS PART !!!!!!!!!!!
+
+  # Create Security Group for WordPress on east-1a
+  WPSecGrp:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH 22 & HTTP 80 
+      GroupName: WPSecGrp
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.0.0/16 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecGrp  
+      VpcId: !Ref ProjVPC
+  
+  # Launch WordPress on east-1a
+  WPInstance1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-008677ef1baf82eaf
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref WPSecGrp
+      SubnetId: !Ref Private1aWP
+      UserData: !Base64 |
+        #!/bin/bash
+        yum install httpd php php-mysql -y
+        amazon-linux-extras install -y php7.2
+        yum install mariadb-server -y
+        cd /var/www/html
+        wget https://wordpress.org/latest.tar.gz
+        tar -xzf latest.tar.gz
+        cp -r wordpress/* /var/www/html/
+        rm -rf wordpress
+        rm -rf latest.tar.gz
+        chmod -R 755 wp-content
+        chown -R apache:apache wp-content
+        service httpd start
+        chkconfig httpd on
+      Tags: 
+        - Key: 'Name'
+          Value: 'WP Instance1a'
+
+  # Launch WordPress on east-1b
+  WPInstance1b:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-008677ef1baf82eaf
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref WPSecGrp
+      SubnetId: !Ref Private1bWP
+      UserData: !Base64 |
+        #!/bin/bash
+        yum install httpd php php-mysql -y
+        amazon-linux-extras install -y php7.2
+        yum install mariadb-server -y
+        cd /var/www/html
+        wget https://wordpress.org/latest.tar.gz
+        tar -xzf latest.tar.gz
+        cp -r wordpress/* /var/www/html/
+        rm -rf wordpress
+        rm -rf latest.tar.gz
+        chmod -R 755 wp-content
+        chown -R apache:apache wp-content
+        service httpd start
+        chkconfig httpd on
+        systemctl restart httpd
+      Tags: 
+        - Key: 'Name'
+          Value: 'WP Instance1b'
+
+# ------------------------------------------
+# ----------- ALB CONFIGURATIONS -----------
+# ------------------------------------------
+
+  # Create a Target Group for ALB
+  ALBTarget:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ALBTarget
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref ProjVPC
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: 200
+      TargetType: instance
+      Targets:
+        - Id: !Ref WPInstance1a
+          Port: 80
+        - Id: !Ref WPInstance1b
+          Port: 80
+
+  # Create an ALB
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ALB
+      Scheme: internet-facing
+      Subnets:
+        - !Ref Public1a
+        - !Ref Public1b
+      SecurityGroups:
+        - !Ref ALBSecGrp
+      Tags:
+        - Key: Name
+          Value: ALB
+
+  # Create Security Group for ALB
+  ALBSecGrp:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH 22 & HTTP 80 # Required
+      GroupName: ALBSecGrp
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref ProjVPC
+
+  # Create a listener for ALB
+  MyListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTarget
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+# # ------------------------------------------
+# # ----------- RDS CONFIGURATIONS -----------
+# # ------------------------------------------
+
+  # Create a Security Group for RDS
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable MySQL access
+      GroupName: DBSecGrp
+      VpcId: !Ref ProjVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WPSecGrp
+
+  # Create a Subnet Group for DC Subnets
+  DBSubnetGrp:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref Private1aRDS
+        - !Ref Private1bRDS
+        - !Ref Private1aWP
+        - !Ref Private1bWP
+
+  # Create RDS Instance
+  MySQLDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: webDB
+      Engine: mysql
+      EngineVersion: 8.0.35
+      DBInstanceClass: db.t2.micro
+      MasterUsername: admin
+      MasterUserPassword: Admin12345
+      AllocatedStorage: 20
+      DBSubnetGroupName: !Ref DBSubnetGrp
+      MultiAZ: false
+      VPCSecurityGroups: 
+        - !Ref DBSecurityGroup
+      DBName: WordpressDB
+      AutoMinorVersionUpgrade: false
+
+
+  # # ----- TEST -----
+  # MyDNSRecord:
+  #   Type: AWS::Route53::RecordSet
+  #   Properties:
+  #     HostedZoneId: !Ref HostedZoneId
+  #     Comment: DNS entry for My CNAME Record
+  #     Name: project.zasici.com
+  #     Type: CNAME
+  #     TTL: 300
+  #     ResourceRecords:
+  #       - !GetAtt ALB.DNSName
+
+Outputs:
+  ALBDns:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ALB.DNSName
